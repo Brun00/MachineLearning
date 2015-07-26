@@ -128,7 +128,7 @@ cm
 
 Data was processed by removing variables with: missing observations, time data and variables highly correlated with each other. Finally small testing set was used to determine the most influential variables, and 25 of them were kept for the final model training. 
 
-Prediction model was trained using random forest approach. The model was cross-validated by bootstrapping with 25 repetitions. As well as out-of-bag (oob) error estimate, which was calculated as 1%. Tested, the model scored .98% of Accuracy and 0.98 Kappa value.
+Prediction model was trained using random forest approach. The model was cross-validated by bootstrapping with 25 repetitions. As well as out-of-bag (oob) error estimate, which was calculated to be 1%. Tested, the model scored .98% of Accuracy and 0.98 Kappa value.
 
 It was shown that using just 25 of the most influential variables, it was possible to train a model with both very high Sensitivity (min .95 for classe "C", and max 1.0 for classe "E") and Specificity > .99 for all types of exercises. 
 
