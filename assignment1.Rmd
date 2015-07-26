@@ -1,0 +1,146 @@
+---
+title: "Machine Learning Course Assignment"
+author: "Dorian"
+date: "Tuesday, July 21, 2015"
+output: html_document
+---
+
+## Abstract
+
+The purpose of this exercise is to develop prediction algorithm that will enable to distinguish between well and badly-performed weight lifting exercises. Data gathered from accelerometers attached to six male individuals performing unilateral dumbbell biceps curls in five different manners is processed and explored. Amount of variables is reduced based on the most influential variables information gathered from the random forest model. Following, the final random forest algorithm is created and validated on test data. 
+
+## Data processing
+###Removing unnecessary variables
+Data was downloaded to the local folder and loaded.
+```{r, eval=FALSE}
+url_training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(url_training, "training.csv")
+download.file(url_testing, "testing.csv")
+```  
+```{r}
+train_data <- read.csv("training.csv", na.strings = c("NA", "", "#DIV/0!"))
+test_data <- read.csv("testing.csv", na.strings = c("NA", "", "#DIV/0!"))
+```  
+
+Brief examination of the training data reveals variables with high number of not annotated values (NAs). NAs can skew or prevent development of prediction model, thus all variables with NA number higher than 10000 will be removed from the training and testing data.   
+```{r, echo=FALSE, warning=FALSE, results='hide', include=FALSE}
+library(caret); library(ggplot2); library(dplyr)
+```
+```{r}
+sumNAlist <- lapply(train_data, function(x)sum(is.na(x)))
+highNAlist <- NULL
+for(i in 1:length(sumNAlist)){
+    if(sumNAlist[i] > 10000){
+        highNAlist <- c(highNAlist, names(sumNAlist[i]))
+        }
+    }
+train_short <- train_data[, !(colnames(train_data)%in%highNAlist)]
+```  
+Variables connected with time and time windows were also removed
+```{r}
+train_short_2 <- subset(train_short, select = -(raw_timestamp_part_1:num_window))
+```  
+First row, containing sample numbers is removed and categorical data "user_name" is moved to the end of the data frame.  
+```{r}
+train_short_2 <- train_short_2[,c(3:54, 2, 55)]
+```
+
+Finally, data will be split into training and testing data in ratio 6:4, to allow cross-validation and testing before application to the final test data provided by instructors.
+```{r}
+inTrain <- createDataPartition(train_short_2$classe, p = 0.60,list=FALSE)
+training <- train_short_2[ inTrain,]
+testing <- train_short_2[-inTrain,]
+```
+
+####Data exploration  
+
+The data was tested for correlation among variables to detect if there is redundancy among variables.
+```{r, results='markup' }
+correlationMatrix <- abs(cor(training[1:52]))
+diag(correlationMatrix) <- 0
+t(which(correlationMatrix>.8, arr.ind = T))
+```  
+
+Data show very high (>0.8) correlation among some quantitative variables, thus some of them can be removed. 
+
+```{r}
+training_2 <- training[,-c(3,4,8,9,10,11,18, 21, 25, 28, 29)]
+```
+
+To further explore if any variables influence are responsible for the majority of variation in data, singular value decomposition (SVD) is performed.  
+
+```{r}
+svd1 <- svd(training_2[,-c(42,43)])
+plot(svd1$d^2/sum(svd1$d^2), xlab = "Column", ylab = "Prop. of variance explained", pch = 19)
+```  
+ 
+As concluded, there are few quantitative variables that constitute for the majority of data variation. It would be therefore desirable to PCA in the training process or at least limit the amount of highly correlated variables. There is however, a categorical variable "user_name", that may have high impact on the data.
+
+```{r}
+myplot1 <- ggplot(data = training_2, aes(user_name, roll_belt)) + geom_boxplot() + geom_jitter(aes(color = classe, alpha = .2)) + labs(title = "Overview of the training data, \n relation between individuals in roll_belt data for \n five different variants of weight lifting exercise")
+myplot1
+```
+
+The variable for which prediction model is build (classe) is also categorical, therefore non-linear models will be fit. The optimal solution would be random forest as it both **automatically perform cross-validation** and is suitable for both categorical and quantitative variables. Random forest algorithm allows also to select the most influential variables, therefore makes it possible to reduce dataset.
+
+## Model development
+#### Subselecting the most influential variables
+
+*Due to limited computational power accesible to me, I've decided to further limit number of variables by running "random forest"" algorithm and identyfying most influential variables.*
+Small fragment of data is selected to test for most influential variables:
+
+```{r, cache=TRUE}
+inTrain <- createDataPartition(training_2$classe, p = 0.1,list=FALSE)
+training_small <- training_2[ inTrain,]
+mymodel <- train(classe ~ ., data = training_small, method = "rf")
+vi <- varImp(mymodel)
+variables <- data.frame(name = row.names(vi$importance), overall = vi$importance)
+arranged <- arrange(variables, desc(Overall))
+top25 <- arranged[1:25,]
+final_training <- training_2[, colnames(training_2)%in%top25$name]
+final_training$classe <- training_2$classe
+```  
+25 most influential variables were selected and based on them the final model will be trained.
+```{r}
+myplot2 <- ggplot(data = top25, aes( reorder(name, Overall), Overall)) + geom_bar(stat = "identity", aes(fill = Overall)) + coord_flip() + labs(title = "top 25 most important variables \n identified by random forest", y = "Score in 0-100 range", x = "variable name")
+myplot2
+```
+plot(top25$name, top25$Overall)
+
+#### Model training
+```{r, cache=TRUE}
+set.seed(12345)
+finalmodel <- train(classe ~ ., data = final_training, method = "rf")
+finmodel <- finalmodel$finalModel
+finmodel
+```
+
+####Model testing
+Our model will be tested by predicting from the test set that was made from 40% of the starting data.
+```{r}
+cm <- confusionMatrix(testing$classe, predict(finalmodel, testing))
+cm
+```
+
+## Discussion
+
+Data was processed by removing variables with: missing observations, time data and variables highly correlated with each other. Finally small testing set was used to determine the most influential variables, and 25 of them were kept for the final model training. 
+
+Prediction model was trained using random forest approach. The model was cross-validated by bootstrapping with 25 repetitions. As well as out-of-bag (oob) error estimate, which was calculated as 1%. Tested, the model scored .98% of Accuracy and 0.98 Kappa value.
+
+It was shown that using just 25 of the most influential variables, it was possible to train a model with both very high Sensitivity (min .95 for classe "C", and max 1.0 for classe "E") and Specificity > .99 for all types of exercises. 
+
+## References
+
+Original publication:  
+**Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H.** *Qualitative Activity Recognition of Weight Lifting Exercises*. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Data description:  
+http://groupware.les.inf.puc-rio.br/har
+
+Data:  
++ training - https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv  
++ testing - https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
